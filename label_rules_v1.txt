@@ -1,0 +1,14 @@
+Ferry:
+- Label AT Hop ferries
+- Full or identifiable partial vessel
+- Tight hull + visible structure
+
+Crane:
+- Label full crane
+- Major crane structures only
+
+Bird:
+- Label visible birds causing confusion
+
+Port_structure:
+- Ferry terminals, docks, bridges, gantries

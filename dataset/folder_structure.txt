@@ -1,0 +1,124 @@
+Folder PATH listing for volume OSDisk
+Volume serial number is 000000AB 6C0D:003C
+C:.
+|   folder_structure.txt
+|   
++---test
++---train
+|   |   labels.cache
+|   |   
+|   +---images
+|   |       crane_001.jpg
+|   |       crane_002.jpg
+|   |       crane_003.jpg
+|   |       crane_004.jpg
+|   |       crane_005.jpg
+|   |       crane_006.jpg
+|   |       crane_007.jpg
+|   |       crane_008.jpg
+|   |       crane_009.jpg
+|   |       crane_010.jpg
+|   |       crane_011.jpg
+|   |       crane_012.jpg
+|   |       crane_013.jpg
+|   |       crane_014.jpg
+|   |       crane_015.jpg
+|   |       crane_016.jpg
+|   |       crane_017.jpg
+|   |       crane_018.jpg
+|   |       crane_019.jpg
+|   |       crane_020.jpg
+|   |       crane_021.jpg
+|   |       crane_022.jpg
+|   |       crane_023.jpg
+|   |       crane_024.jpg
+|   |       crane_025.jpg
+|   |       crane_026.jpg
+|   |       crane_027.jpg
+|   |       crane_028.jpg
+|   |       ferry_009.jpg
+|   |       ferry_010.jpg
+|   |       ferry_011.jpg
+|   |       ferry_012.jpg
+|   |       ferry_013.jpg
+|   |       ferry_014.jpg
+|   |       ferry_015.jpg
+|   |       ferry_016.jpg
+|   |       ferry_017.jpg
+|   |       ferry_018.jpg
+|   |       ferry_019.jpg
+|   |       ferry_020.jpg
+|   |       ferry_021.jpg
+|   |       ferry_022.jpg
+|   |       ferry_023.jpg
+|   |       ferry_024.jpg
+|   |       ferry_025.jpg
+|   |       ferry_026.jpg
+|   |       ferry_027.jpg
+|   |       ferry_028.jpg
+|   |       ferry_029.jpg
+|   |       ferry_030.jpg
+|   |       ferry_031.jpg
+|   |       ferry_032.jpg
+|   |       ferry_033.jpg
+|   |       ferry_034.jpg
+|   |       ferry_035.jpg
+|   |       ferry_036.jpg
+|   |       ferry_037.jpg
+|   |       ferry_038.jpg
+|   |       
+|   \---labels
+|           ferry_009.txt
+|           ferry_010.txt
+|           ferry_011.txt
+|           ferry_012.txt
+|           ferry_013.txt
+|           ferry_014.txt
+|           ferry_015.txt
+|           ferry_016.txt
+|           ferry_017.txt
+|           ferry_018.txt
+|           ferry_019.txt
+|           ferry_020.txt
+|           ferry_021.txt
+|           ferry_022.txt
+|           ferry_023.txt
+|           ferry_024.txt
+|           ferry_025.txt
+|           ferry_026.txt
+|           ferry_027.txt
+|           ferry_028.txt
+|           ferry_029.txt
+|           ferry_030.txt
+|           ferry_031.txt
+|           ferry_032.txt
+|           ferry_033.txt
+|           ferry_034.txt
+|           ferry_035.txt
+|           ferry_036.txt
+|           ferry_037.txt
+|           ferry_038.txt
+|           
+\---val
+    |   labels.cache
+    |   
+    +---images
+    |       ferry_001.jpg
+    |       ferry_002.jpg
+    |       ferry_003.jpg
+    |       ferry_004.jpg
+    |       ferry_005.jpg
+    |       ferry_006.jpg
+    |       ferry_007.jpg
+    |       ferry_008.jpg
+    |       
+    \---labels
+            ferry_001.txt
+            ferry_002.txt
+            ferry_003.txt
+            ferry_004.txt
+            ferry_005.txt
+            ferry_006.txt
+            ferry_007.txt
+            ferry_008.txt
+            

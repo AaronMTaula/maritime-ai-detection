@@ -1,0 +1,21 @@
+# Virtual environment
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Last checkpoint weights (keep best.pt only)
+runs/detect/*/weights/last.pt
+
+# Screenshots
+screenshot_*.jpg
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.log

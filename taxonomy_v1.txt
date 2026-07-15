@@ -1,0 +1,4 @@
+0 ferry
+1 crane
+2 bird
+3 port_structure
