@@ -1,2 +1,2 @@
 # COMP703_2026_S1
-Research and Development Project Part 1&amp;2
+YOLOv8-based maritime vessel detection system for AUT and Navantia Australia collaboration
