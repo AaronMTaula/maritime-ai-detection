@@ -16,6 +16,25 @@ screenshot_*.jpg
 .DS_Store
 Thumbs.db
 
+# Large model files — exclude older training runs
+runs/detect/train/
+runs/detect/train-2/
+runs/detect/train-3/
+runs/detect/train_v2/
+
+# Keep only the final v2 151img model
+# runs/detect/train_v2_151img/ ← this one stays
+
 # Temporary files
 *.tmp
 *.log
+
+# Base model weights — too large for GitHub
+yolov8m.pt
+models/
+
+# Old training runs with large weights
+runs/detect/train_v2/
+
+# Raw video clips
+images/NZ_AT/raw_video_clips/
