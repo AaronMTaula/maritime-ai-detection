@@ -2,25 +2,70 @@ import cv2
 import threading
 from ultralytics import YOLO
 
-# Load INT8 OpenVINO model
-model = YOLO('runs/detect/train_v2_151img/weights/best_int8_openvino_model/')
+# ── Camera Scan and Selection ─────────────────────────────────────
+print("Scanning for available cameras...")
+found = []
 
-# Open webcam using DirectShow backend
-cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+for index in range(10):
+    cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+    if cap.isOpened():
+        ret, frame = cap.read()
+        if ret:
+            width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+            height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+            print(f"  [{index}] Camera found — Resolution: {int(width)}x{int(height)}")
+            found.append(index)
+        cap.release()
+        cv2.waitKey(100)
+    else:
+        print(f"  [{index}] No camera found")
+        cap.release()
 
-if not cap.isOpened():
-    print("Error: Could not open camera.")
+if not found:
+    print("No cameras detected. Please connect a camera and try again.")
     exit()
 
-# Set resolution
+print(f"\nAvailable camera indices: {found}")
+
+if len(found) == 1:
+    CAMERA_INDEX = found[0]
+    print(f"Only one camera found — using index {CAMERA_INDEX} automatically.")
+else:
+    while True:
+        selection = input(f"\nSelect camera index {found}: ").strip()
+        if selection == "":
+            CAMERA_INDEX = found[0]
+            print(f"No selection made — defaulting to index {CAMERA_INDEX}.")
+            break
+        elif selection.isdigit() and int(selection) in found:
+            CAMERA_INDEX = int(selection)
+            break
+        else:
+            print(f"Invalid selection. Please enter one of {found}.")
+
+print(f"\nUsing camera index {CAMERA_INDEX}")
+
+# ── Load Model ────────────────────────────────────────────────────
+print("Loading model...")
+model = YOLO('runs/detect/train_v2_151img/weights/best_int8_openvino_model/')
+print("Model loaded successfully.")
+
+# ── Open Webcam ───────────────────────────────────────────────────
+print(f"Opening camera index {CAMERA_INDEX}...")
+cap = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_DSHOW)
+
+if not cap.isOpened():
+    print(f"Error: Could not open camera {CAMERA_INDEX}.")
+    exit()
+
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-
+print("Camera opened successfully.")
 print("Live detection running.")
 print("Press Q to quit.")
 print("Press S to save a screenshot.")
 
-# Shared state between threads
+# ── Shared State ──────────────────────────────────────────────────
 latest_frame = None
 latest_results = None
 frame_lock = threading.Lock()
@@ -28,13 +73,12 @@ results_lock = threading.Lock()
 running = True
 screenshot_count = 0
 
-# ── Inference thread ──────────────────────────────────────────────
+# ── Inference Thread ──────────────────────────────────────────────
 def inference_thread():
     global latest_results, running
     frame_count = 0
 
     while running:
-        # Safely grab the latest frame
         with frame_lock:
             if latest_frame is None:
                 continue
@@ -42,7 +86,6 @@ def inference_thread():
 
         frame_count += 1
 
-        # Run detection every 5th frame
         if frame_count % 5 == 0:
             results = model(
                 frame,
@@ -51,37 +94,29 @@ def inference_thread():
                 imgsz=320,
                 half=True
             )
-            # Safely store results
             with results_lock:
                 latest_results = results
 
-# ── Start inference thread ────────────────────────────────────────
+# ── Start Inference Thread ────────────────────────────────────────
 thread = threading.Thread(target=inference_thread, daemon=True)
 thread.start()
 
-# ── Main display loop ─────────────────────────────────────────────
+# ── Main Display Loop ─────────────────────────────────────────────
 while True:
     ret, frame = cap.read()
     if not ret:
         print("Error: Could not read frame.")
         break
 
-    # Safely update the shared frame for inference thread
     with frame_lock:
         latest_frame = frame.copy()
 
-    # Safely read latest results for display
     with results_lock:
         current_results = latest_results
 
-    # Draw results on frame
     if current_results is not None:
         annotated_frame = current_results[0].plot()
-
-        # Count detections
         detections = len(current_results[0].boxes)
-
-        # Display detection count
         color = (0, 255, 0) if detections > 0 else (0, 0, 255)
         cv2.putText(annotated_frame,
                     f'Ferries detected: {detections}',
@@ -89,7 +124,6 @@ while True:
                     cv2.FONT_HERSHEY_SIMPLEX,
                     1, color, 2)
 
-        # Display confidence scores
         if detections > 0:
             for i, box in enumerate(current_results[0].boxes):
                 conf = float(box.conf[0])
@@ -106,9 +140,8 @@ while True:
                     cv2.FONT_HERSHEY_SIMPLEX,
                     1, (255, 255, 0), 2)
 
-    # Display settings info at bottom of frame
     cv2.putText(annotated_frame,
-                'OpenVINO INT8 | Threaded | imgsz=320 | conf=0.6 | Every 5th frame',
+                f'Camera: {CAMERA_INDEX} | OpenVINO INT8 | imgsz=320 | conf=0.6 | Every 5th frame',
                 (20, annotated_frame.shape[0] - 20),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5, (200, 200, 200), 1)
@@ -117,19 +150,17 @@ while True:
 
     key = cv2.waitKey(1) & 0xFF
 
-    # Q to quit
     if key == ord('q'):
         running = False
         break
 
-    # S to save screenshot
     if key == ord('s'):
         screenshot_path = f'screenshot_{screenshot_count}.jpg'
         cv2.imwrite(screenshot_path, annotated_frame)
         print(f"Screenshot saved: {screenshot_path}")
         screenshot_count += 1
 
-# Cleanup
+# ── Cleanup ───────────────────────────────────────────────────────
 running = False
 cap.release()
 cv2.destroyAllWindows()
