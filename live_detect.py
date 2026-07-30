@@ -5,6 +5,9 @@ import cv2
 import threading
 from ultralytics import YOLO
 
+if hasattr(cv2, "setLogLevel"):
+    cv2.setLogLevel(0)
+
 
 def get_backend_name(backend):
     if backend is None:
@@ -87,7 +90,8 @@ def open_selected_camera(index, preferred_backend=None):
 
 
 # Load INT8 OpenVINO model
-model = YOLO('runs/detect/train_v2_151img/weights/best_int8_openvino_model/')
+with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+    model = YOLO('runs/detect/train_v2_151img/weights/best_int8_openvino_model/')
 
 # Discover and let the user choose a camera
 available_cameras = find_available_cameras()
@@ -102,6 +106,7 @@ for i, (index, backend) in enumerate(available_cameras, 1):
 
 if len(available_cameras) == 1:
     selected_index = 0
+    print("Only one camera detected. Using it automatically.")
 else:
     selection = input("Select a camera number: ").strip()
     try:
@@ -119,7 +124,7 @@ if cap is None:
     print("Error: Could not open the selected camera.")
     exit()
 
-print(f"Using camera index {camera_index} with {get_backend_name(opened_backend)}")
+print("Camera selected.")
 
 # Set resolution
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
