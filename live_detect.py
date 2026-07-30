@@ -1,3 +1,6 @@
+import contextlib
+import io
+import os
 import cv2
 import threading
 from ultralytics import YOLO
@@ -16,36 +19,71 @@ def get_backend_name(backend):
     return backend_names.get(backend, str(backend))
 
 
+def try_open_camera(index, backend=None):
+    with contextlib.redirect_stderr(io.StringIO()):
+        if backend is None:
+            cap = cv2.VideoCapture(index)
+        else:
+            cap = cv2.VideoCapture(index, backend)
+
+        if not cap.isOpened():
+            cap.release()
+            return None
+
+        ret, frame = cap.read()
+        if not ret or frame is None:
+            cap.release()
+            return None
+
+    return cap, frame
+
+
 def find_available_cameras(max_devices=10):
     backends = [None]
-    for backend in [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_VFW, cv2.CAP_AVFOUNDATION]:
-        if hasattr(cv2, "CAP_DSHOW") and backend is not None:
-            backends.append(backend)
+    if os.name == "nt":
+        backends.extend([cv2.CAP_DSHOW, cv2.CAP_MSMF])
+    else:
+        backends.extend([cv2.CAP_ANY])
 
     discovered = []
     seen = set()
 
-    for backend in backends:
-        for index in range(max_devices):
-            if backend is None:
-                cap = cv2.VideoCapture(index)
-            else:
-                cap = cv2.VideoCapture(index, backend)
-
-            if not cap.isOpened():
-                cap.release()
+    for index in range(max_devices):
+        for backend in backends:
+            result = try_open_camera(index, backend)
+            if result is None:
                 continue
 
-            ret, _ = cap.read()
-            cap.release()
-
-            if ret:
-                key = (index, backend)
-                if key not in seen:
-                    seen.add(key)
-                    discovered.append((index, backend))
+            key = (index, backend)
+            if key not in seen:
+                seen.add(key)
+                discovered.append((index, backend))
+            break
 
     return discovered
+
+
+def open_selected_camera(index, preferred_backend=None):
+    backends = []
+    if preferred_backend is not None:
+        backends.append(preferred_backend)
+    backends.append(None)
+
+    if os.name == "nt":
+        for backend in [cv2.CAP_DSHOW, cv2.CAP_MSMF]:
+            if backend not in backends:
+                backends.append(backend)
+    else:
+        if cv2.CAP_ANY not in backends:
+            backends.append(cv2.CAP_ANY)
+
+    for backend in backends:
+        result = try_open_camera(index, backend)
+        if result is not None:
+            cap, _ = result
+            return cap, backend
+
+    return None, None
 
 
 # Load INT8 OpenVINO model
@@ -75,15 +113,13 @@ else:
         selected_index = 0
 
 camera_index, camera_backend = available_cameras[selected_index]
+cap, opened_backend = open_selected_camera(camera_index, camera_backend)
 
-if camera_backend is None:
-    cap = cv2.VideoCapture(camera_index)
-else:
-    cap = cv2.VideoCapture(camera_index, camera_backend)
-
-if not cap.isOpened():
+if cap is None:
     print("Error: Could not open the selected camera.")
     exit()
+
+print(f"Using camera index {camera_index} with {get_backend_name(opened_backend)}")
 
 # Set resolution
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
