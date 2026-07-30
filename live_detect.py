@@ -2,60 +2,88 @@ import cv2
 import threading
 from ultralytics import YOLO
 
-# ── Camera Scan and Selection ─────────────────────────────────────
-print("Scanning for available cameras...")
-found = []
 
-for index in range(10):
-    cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
-    if cap.isOpened():
-        ret, frame = cap.read()
-        if ret:
-            width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-            height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-            print(f"  [{index}] Camera found — Resolution: {int(width)}x{int(height)}")
-            found.append(index)
-        cap.release()
-        cv2.waitKey(100)
-    else:
-        print(f"  [{index}] No camera found")
-        cap.release()
+def get_backend_name(backend):
+    if backend is None:
+        return "default"
+    backend_names = {
+        cv2.CAP_ANY: "CAP_ANY",
+        cv2.CAP_DSHOW: "CAP_DSHOW",
+        cv2.CAP_MSMF: "CAP_MSMF",
+        cv2.CAP_VFW: "CAP_VFW",
+        cv2.CAP_AVFOUNDATION: "CAP_AVFOUNDATION",
+    }
+    return backend_names.get(backend, str(backend))
 
-if not found:
-    print("No cameras detected. Please connect a camera and try again.")
-    exit()
 
-print(f"\nAvailable camera indices: {found}")
+def find_available_cameras(max_devices=10):
+    backends = [None]
+    for backend in [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_VFW, cv2.CAP_AVFOUNDATION]:
+        if hasattr(cv2, "CAP_DSHOW") and backend is not None:
+            backends.append(backend)
 
-if len(found) == 1:
-    CAMERA_INDEX = found[0]
-    print(f"Only one camera found — using index {CAMERA_INDEX} automatically.")
-else:
-    while True:
-        selection = input(f"\nSelect camera index {found}: ").strip()
-        if selection == "":
-            CAMERA_INDEX = found[0]
-            print(f"No selection made — defaulting to index {CAMERA_INDEX}.")
-            break
-        elif selection.isdigit() and int(selection) in found:
-            CAMERA_INDEX = int(selection)
-            break
-        else:
-            print(f"Invalid selection. Please enter one of {found}.")
+    discovered = []
+    seen = set()
 
-print(f"\nUsing camera index {CAMERA_INDEX}")
+    for backend in backends:
+        for index in range(max_devices):
+            if backend is None:
+                cap = cv2.VideoCapture(index)
+            else:
+                cap = cv2.VideoCapture(index, backend)
 
-# ── Load Model ────────────────────────────────────────────────────
-print("Loading model...")
+            if not cap.isOpened():
+                cap.release()
+                continue
+
+            ret, _ = cap.read()
+            cap.release()
+
+            if ret:
+                key = (index, backend)
+                if key not in seen:
+                    seen.add(key)
+                    discovered.append((index, backend))
+
+    return discovered
+
+
+# Load INT8 OpenVINO model
 model = YOLO('runs/detect/train_v2_151img/weights/best_int8_openvino_model/')
 print("Model loaded successfully.")
 
-# ── Open Webcam ───────────────────────────────────────────────────
-print(f"Opening camera index {CAMERA_INDEX}...")
-cap = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_DSHOW)
+# Discover and let the user choose a camera
+available_cameras = find_available_cameras()
+
+if not available_cameras:
+    print("Error: No camera devices were detected.")
+    exit()
+
+print("Available cameras:")
+for i, (index, backend) in enumerate(available_cameras, 1):
+    print(f"  {i}. Camera index {index} using {get_backend_name(backend)}")
+
+if len(available_cameras) == 1:
+    selected_index = 0
+else:
+    selection = input("Select a camera number: ").strip()
+    try:
+        selected_index = int(selection) - 1
+        if selected_index < 0 or selected_index >= len(available_cameras):
+            raise ValueError
+    except ValueError:
+        print("Invalid selection. Using the first detected camera.")
+        selected_index = 0
+
+camera_index, camera_backend = available_cameras[selected_index]
+
+if camera_backend is None:
+    cap = cv2.VideoCapture(camera_index)
+else:
+    cap = cv2.VideoCapture(camera_index, camera_backend)
 
 if not cap.isOpened():
-    print(f"Error: Could not open camera {CAMERA_INDEX}.")
+    print("Error: Could not open the selected camera.")
     exit()
 
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
