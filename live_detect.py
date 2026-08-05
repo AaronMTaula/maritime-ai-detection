@@ -28,13 +28,10 @@ def get_platform_backends():
     """Return backends appropriate for the current OS."""
     backends = [None]
     if os.name == "nt":
-        # Windows
         backends += [cv2.CAP_DSHOW, cv2.CAP_MSMF]
     elif hasattr(cv2, "CAP_AVFOUNDATION"):
-        # macOS
         backends += [cv2.CAP_AVFOUNDATION]
     else:
-        # Linux
         backends += [cv2.CAP_ANY]
     return backends
 
@@ -72,19 +69,11 @@ def find_available_cameras(max_devices=10):
             if key not in seen:
                 seen.add(key)
                 discovered.append((index, backend, width, height))
-            break  # Found a working backend for this index — move to next
+            break
 
     return discovered
 
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-# Load INT8 OpenVINO model
-model = YOLO('runs/detect/train_v2_151img/weights/best_int8_openvino_model/')
-print("Model loaded successfully.")
-=======
-=======
->>>>>>> 7a453d3fcba589048ee99bde574d11000a3cf627
 def open_selected_camera(index, preferred_backend=None):
     """Open a camera with fallback across backends."""
     backends = []
@@ -93,10 +82,6 @@ def open_selected_camera(index, preferred_backend=None):
     for b in get_platform_backends():
         if b not in backends:
             backends.append(b)
-<<<<<<< HEAD
->>>>>>> main
-=======
->>>>>>> 7a453d3fcba589048ee99bde574d11000a3cf627
 
     for backend in backends:
         result = try_open_camera(index, backend)
@@ -127,13 +112,13 @@ for i, (index, backend, width, height) in enumerate(available_cameras, 1):
 
 if len(available_cameras) == 1:
     selected_index = 0
-    print(f"\nOnly one camera detected — using it automatically.")
+    print("\nOnly one camera detected — using it automatically.")
 else:
     while True:
         selection = input(f"\nSelect camera [1-{len(available_cameras)}]: ").strip()
         if selection == "":
             selected_index = 0
-            print(f"No selection — defaulting to camera 1.")
+            print("No selection — defaulting to camera 1.")
             break
         try:
             selected_index = int(selection) - 1
@@ -154,14 +139,6 @@ if cap is None:
 
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-
->>>>>>> main
-=======
-
->>>>>>> 7a453d3fcba589048ee99bde574d11000a3cf627
 print("Camera opened successfully.")
 print("Live detection running.")
 print("Press Q to quit.")
@@ -243,15 +220,7 @@ while True:
                     1, (255, 255, 0), 2)
 
     cv2.putText(annotated_frame,
-<<<<<<< HEAD
-<<<<<<< HEAD
-                f'Camera: {CAMERA_INDEX} | OpenVINO INT8 | imgsz=320 | conf=0.6 | Every 5th frame',
-=======
                 f'Camera: {camera_index} | OpenVINO INT8 | imgsz=320 | conf=0.6 | Every 5th frame',
->>>>>>> main
-=======
-                f'Camera: {camera_index} | OpenVINO INT8 | imgsz=320 | conf=0.6 | Every 5th frame',
->>>>>>> 7a453d3fcba589048ee99bde574d11000a3cf627
                 (20, annotated_frame.shape[0] - 20),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5, (200, 200, 200), 1)
