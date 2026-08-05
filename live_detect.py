@@ -78,10 +78,13 @@ def find_available_cameras(max_devices=10):
 
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 # Load INT8 OpenVINO model
 model = YOLO('runs/detect/train_v2_151img/weights/best_int8_openvino_model/')
 print("Model loaded successfully.")
 =======
+=======
+>>>>>>> 7a453d3fcba589048ee99bde574d11000a3cf627
 def open_selected_camera(index, preferred_backend=None):
     """Open a camera with fallback across backends."""
     backends = []
@@ -90,7 +93,10 @@ def open_selected_camera(index, preferred_backend=None):
     for b in get_platform_backends():
         if b not in backends:
             backends.append(b)
+<<<<<<< HEAD
 >>>>>>> main
+=======
+>>>>>>> 7a453d3fcba589048ee99bde574d11000a3cf627
 
     for backend in backends:
         result = try_open_camera(index, backend)
@@ -149,9 +155,13 @@ if cap is None:
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 
 >>>>>>> main
+=======
+
+>>>>>>> 7a453d3fcba589048ee99bde574d11000a3cf627
 print("Camera opened successfully.")
 print("Live detection running.")
 print("Press Q to quit.")
@@ -234,10 +244,14 @@ while True:
 
     cv2.putText(annotated_frame,
 <<<<<<< HEAD
+<<<<<<< HEAD
                 f'Camera: {CAMERA_INDEX} | OpenVINO INT8 | imgsz=320 | conf=0.6 | Every 5th frame',
 =======
                 f'Camera: {camera_index} | OpenVINO INT8 | imgsz=320 | conf=0.6 | Every 5th frame',
 >>>>>>> main
+=======
+                f'Camera: {camera_index} | OpenVINO INT8 | imgsz=320 | conf=0.6 | Every 5th frame',
+>>>>>>> 7a453d3fcba589048ee99bde574d11000a3cf627
                 (20, annotated_frame.shape[0] - 20),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5, (200, 200, 200), 1)
