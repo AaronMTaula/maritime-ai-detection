@@ -140,7 +140,6 @@ if cap is None:
     print(f"Error: Could not open camera {camera_index}.")
     exit()
 
-# Set resolution
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 

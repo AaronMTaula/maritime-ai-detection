@@ -86,3 +86,15 @@
 
 **Press \*\*Q\*\* to quit | Press \*\*S\*\* to save screenshot**
 
+## Improving performance
+The current model is trained on a relatively small dataset, so extra training can help if you add more varied examples. The fastest path is:
+
+1. Collect more ferry images with different lighting, weather, angles, and distances.
+2. Retrain using the provided script:
+
+```bash
+python train_ferry_model.py --epochs 80 --imgsz 640 --batch 8 --device cpu
+```
+
+3. Keep the live detector using a slightly higher resolution and confidence threshold if you want fewer false positives.
+
