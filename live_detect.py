@@ -28,13 +28,10 @@ def get_platform_backends():
     """Return backends appropriate for the current OS."""
     backends = [None]
     if os.name == "nt":
-        # Windows
         backends += [cv2.CAP_DSHOW, cv2.CAP_MSMF]
     elif hasattr(cv2, "CAP_AVFOUNDATION"):
-        # macOS
         backends += [cv2.CAP_AVFOUNDATION]
     else:
-        # Linux
         backends += [cv2.CAP_ANY]
     return backends
 
@@ -72,7 +69,7 @@ def find_available_cameras(max_devices=10):
             if key not in seen:
                 seen.add(key)
                 discovered.append((index, backend, width, height))
-            break  # Found a working backend for this index — move to next
+            break
 
     return discovered
 
@@ -115,13 +112,13 @@ for i, (index, backend, width, height) in enumerate(available_cameras, 1):
 
 if len(available_cameras) == 1:
     selected_index = 0
-    print(f"\nOnly one camera detected — using it automatically.")
+    print("\nOnly one camera detected — using it automatically.")
 else:
     while True:
         selection = input(f"\nSelect camera [1-{len(available_cameras)}]: ").strip()
         if selection == "":
             selected_index = 0
-            print(f"No selection — defaulting to camera 1.")
+            print("No selection — defaulting to camera 1.")
             break
         try:
             selected_index = int(selection) - 1
@@ -140,10 +137,8 @@ if cap is None:
     print(f"Error: Could not open camera {camera_index}.")
     exit()
 
-# Set resolution
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-
 print("Camera opened successfully.")
 print("Live detection running.")
 print("Press Q to quit.")
