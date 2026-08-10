@@ -3,6 +3,12 @@ import io
 import os
 import cv2
 import threading
+
+try:
+    import yaml
+except ImportError:  # pragma: no cover
+    yaml = None
+
 from ultralytics import YOLO
 
 # ── Suppress OpenCV backend warnings ─────────────────────────────
@@ -92,11 +98,46 @@ def open_selected_camera(index, preferred_backend=None):
     return None, None
 
 
-# ── Load Model ────────────────────────────────────────────────────
-print("Loading model...")
+# ── Model Configuration ─────────────────────────────────────────────
+def get_model_imgsz(model_path):
+    """Read the exported model metadata and return the expected input size."""
+    metadata_path = os.path.join(model_path, "metadata.yaml")
+    if not os.path.exists(metadata_path):
+        return 640
+
+    try:
+        if yaml is None:
+            raise ImportError("PyYAML is not available")
+        with open(metadata_path, "r", encoding="utf-8") as f:
+            metadata = yaml.safe_load(f) or {}
+    except Exception:
+        return 640
+
+    imgsz = metadata.get("imgsz")
+    if isinstance(imgsz, (list, tuple)):
+        if not imgsz:
+            return 640
+        return int(imgsz[0])
+    if isinstance(imgsz, str):
+        try:
+            return int(imgsz)
+        except ValueError:
+            return 640
+    if isinstance(imgsz, int):
+        return imgsz
+    return 640
+
+
+MODEL_PATH = os.environ.get(
+    "MARITIME_MODEL_PATH",
+    "runs/detect/train_v3_more_data/ferry_v3_map0.924_recall0.889_int8_openvino_model/"
+)
+MODEL_IMGSZ = get_model_imgsz(MODEL_PATH)
+
+print(f"Loading model from: {MODEL_PATH}")
 with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-    model = YOLO('runs/detect/train_v2_151img/weights/best_int8_openvino_model/')
-print("Model loaded successfully.")
+    model = YOLO(MODEL_PATH)
+print(f"Model loaded successfully. Expected input size: {MODEL_IMGSZ}x{MODEL_IMGSZ}.")
 
 # ── Camera Scan and Selection ─────────────────────────────────────
 print("\nScanning for available cameras...")
@@ -170,7 +211,7 @@ def inference_thread():
                 frame,
                 conf=0.6,
                 verbose=False,
-                imgsz=320,
+                imgsz=MODEL_IMGSZ,
                 half=True
             )
             with results_lock:
@@ -220,7 +261,7 @@ while True:
                     1, (255, 255, 0), 2)
 
     cv2.putText(annotated_frame,
-                f'Camera: {camera_index} | OpenVINO INT8 | imgsz=320 | conf=0.6 | Every 5th frame',
+                f'Camera: {camera_index} | OpenVINO INT8 | imgsz={MODEL_IMGSZ} | conf=0.6 | Every 5th frame',
                 (20, annotated_frame.shape[0] - 20),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5, (200, 200, 200), 1)
