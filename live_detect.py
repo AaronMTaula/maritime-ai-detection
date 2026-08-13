@@ -98,6 +98,16 @@ def open_selected_camera(index, preferred_backend=None):
     return None, None
 
 
+def set_camera_resolution(cap, width, height):
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    if actual_width != width or actual_height != height:
+        print(f"Warning: requested resolution {width}x{height} not available; using {actual_width}x{actual_height} instead.")
+    return actual_width, actual_height
+
+
 # ── Model Configuration ─────────────────────────────────────────────
 def get_model_imgsz(model_path):
     """Read the exported model metadata and return the expected input size."""
@@ -178,9 +188,8 @@ if cap is None:
     print(f"Error: Could not open camera {camera_index}.")
     exit()
 
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-print("Camera opened successfully.")
+actual_width, actual_height = set_camera_resolution(cap, cam_width, cam_height)
+print(f"Camera opened successfully at {actual_width}x{actual_height}.")
 print("Live detection running.")
 print("Press Q to quit.")
 print("Press S to save a screenshot.")
