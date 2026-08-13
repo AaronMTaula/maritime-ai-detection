@@ -11,6 +11,15 @@ except ImportError:  # pragma: no cover
 
 from ultralytics import YOLO
 
+# Distance estimation (from v2) — requires camera_config.json produced by
+# calibrate_focal_length.py. If that hasn't been run yet, distance display
+# is disabled but detection still works.
+try:
+    from distance_estimation import estimate_distance, load_focal_length, KNOWN_WIDTH_M
+    DISTANCE_MODULE_AVAILABLE = True
+except ImportError:
+    DISTANCE_MODULE_AVAILABLE = False
+
 # ── Suppress OpenCV backend warnings ─────────────────────────────
 if hasattr(cv2, "setLogLevel"):
     cv2.setLogLevel(0)
@@ -139,6 +148,24 @@ with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.St
     model = YOLO(MODEL_PATH)
 print(f"Model loaded successfully. Expected input size: {MODEL_IMGSZ}x{MODEL_IMGSZ}.")
 
+# ── Distance Estimation Setup ──────────────────────────────────────
+FOCAL_LENGTH_PX = None
+if DISTANCE_MODULE_AVAILABLE:
+    try:
+        FOCAL_LENGTH_PX = load_focal_length()
+        print(f"Loaded focal length: {FOCAL_LENGTH_PX:.1f}px "
+              f"(reference width: {KNOWN_WIDTH_M}m)")
+    except FileNotFoundError as e:
+        print(f"WARNING: {e}")
+        print("Distance estimation will be disabled until calibration is run.")
+else:
+    print("WARNING: distance_estimation module not found — distance display disabled.")
+
+# NOTE: focal length calibration is tied to the resolution it was calibrated
+# at. If the camera you select below ends up running at a different
+# resolution than calibration used, distances will be skewed. A mismatch
+# warning is printed once the actual capture resolution is known.
+
 # ── Camera Scan and Selection ─────────────────────────────────────
 print("\nScanning for available cameras...")
 available_cameras = find_available_cameras()
@@ -178,9 +205,25 @@ if cap is None:
     print(f"Error: Could not open camera {camera_index}.")
     exit()
 
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-print("Camera opened successfully.")
+# Request a resolution, but don't assume the camera honours it — read back
+# whatever it actually delivers and use THAT everywhere downstream
+# (display, distance calc). This is what makes the script resolution-agnostic
+# across different cameras rather than hardcoding 1280x720.
+REQUESTED_WIDTH, REQUESTED_HEIGHT = 1280, 720
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, REQUESTED_WIDTH)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, REQUESTED_HEIGHT)
+
+ACTUAL_WIDTH = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+ACTUAL_HEIGHT = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+print(f"Camera opened successfully. Running at {ACTUAL_WIDTH}x{ACTUAL_HEIGHT}.")
+if (ACTUAL_WIDTH, ACTUAL_HEIGHT) != (REQUESTED_WIDTH, REQUESTED_HEIGHT):
+    print(f"Note: requested {REQUESTED_WIDTH}x{REQUESTED_HEIGHT} but camera returned "
+          f"{ACTUAL_WIDTH}x{ACTUAL_HEIGHT}. Continuing with the actual resolution.")
+if FOCAL_LENGTH_PX is not None:
+    print("Note: distance estimates assume the capture resolution matches what "
+          "calibrate_focal_length.py was run at. Re-calibrate if resolutions differ.")
+
 print("Live detection running.")
 print("Press Q to quit.")
 print("Press S to save a screenshot.")
@@ -192,6 +235,12 @@ frame_lock = threading.Lock()
 results_lock = threading.Lock()
 running = True
 screenshot_count = 0
+
+# ── TODO: Orientation feature hook ─────────────────────────────────
+# Placeholder for the upcoming orientation-estimation feature. When ready,
+# add an `estimate_orientation(box, frame)` import similarly to
+# `estimate_distance` above, call it inside the detection loop below where
+# distance is computed, and append its label to the per-box overlay text.
 
 # ── Inference Thread ──────────────────────────────────────────────
 def inference_thread():
@@ -247,8 +296,22 @@ while True:
         if detections > 0:
             for i, box in enumerate(current_results[0].boxes):
                 conf = float(box.conf[0])
+
+                # Bounding box width in pixels (x2 - x1) — used for distance
+                x1, y1, x2, y2 = box.xyxy[0].tolist()
+                bbox_width_px = x2 - x1
+
+                if FOCAL_LENGTH_PX is not None:
+                    distance_m = estimate_distance(bbox_width_px, FOCAL_LENGTH_PX)
+                    label = f'Conf: {conf:.2f} | Dist: {distance_m:.1f}m'
+                else:
+                    label = f'Conf: {conf:.2f} | Dist: N/A (not calibrated)'
+
+                # TODO: append orientation label here once that feature lands
+                # e.g. label += f' | Heading: {orientation_deg:.0f} deg'
+
                 cv2.putText(annotated_frame,
-                           f'Conf: {conf:.2f}',
+                           label,
                            (20, 80 + (i * 40)),
                            cv2.FONT_HERSHEY_SIMPLEX,
                            0.8, (255, 255, 0), 2)
@@ -261,7 +324,8 @@ while True:
                     1, (255, 255, 0), 2)
 
     cv2.putText(annotated_frame,
-                f'Camera: {camera_index} | OpenVINO INT8 | imgsz={MODEL_IMGSZ} | conf=0.6 | Every 5th frame',
+                f'Camera: {camera_index} | OpenVINO INT8 | {ACTUAL_WIDTH}x{ACTUAL_HEIGHT} | '
+                f'imgsz={MODEL_IMGSZ} | conf=0.6 | Every 5th frame',
                 (20, annotated_frame.shape[0] - 20),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5, (200, 200, 200), 1)
