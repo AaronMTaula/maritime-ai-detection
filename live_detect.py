@@ -50,6 +50,18 @@ def get_platform_backends():
         backends += [cv2.CAP_ANY]
     return backends
 
+# ─── New direction helper ──────────────────────────────────────────
+def get_direction_label(box, frame_width, frame_height):
+    """Return 'east/west/north/south' based on box center relative to frame center."""
+    x1, y1, x2, y2 = box.xyxy[0].tolist()
+    center_x = (x1 + x2) / 2
+    center_y = (y1 + y2) / 2
+    frame_center_x = frame_width / 2
+    frame_center_y = frame_height / 2
+    if abs(center_x - frame_center_x) > abs(center_y - frame_center_y):
+        return "east" if center_x > frame_center_x else "west"
+    return "south" if center_y > frame_center_y else "north"
+# ─── End of new helper ─────────────────────────────────────────────
 
 def try_open_camera(index, backend=None):
     """Attempt to open a camera silently. Returns (cap, frame) or None."""
@@ -236,11 +248,7 @@ results_lock = threading.Lock()
 running = True
 screenshot_count = 0
 
-# ── TODO: Orientation feature hook ─────────────────────────────────
-# Placeholder for the upcoming orientation-estimation feature. When ready,
-# add an `estimate_orientation(box, frame)` import similarly to
-# `estimate_distance` above, call it inside the detection loop below where
-# distance is computed, and append its label to the per-box overlay text.
+# ── Orientation feature is now integrated (see get_direction_label) ──
 
 # ── Inference Thread ──────────────────────────────────────────────
 def inference_thread():
@@ -301,14 +309,14 @@ while True:
                 x1, y1, x2, y2 = box.xyxy[0].tolist()
                 bbox_width_px = x2 - x1
 
+                # Compute direction label
+                dir_label = get_direction_label(box, ACTUAL_WIDTH, ACTUAL_HEIGHT)
+
                 if FOCAL_LENGTH_PX is not None:
                     distance_m = estimate_distance(bbox_width_px, FOCAL_LENGTH_PX)
-                    label = f'Conf: {conf:.2f} | Dist: {distance_m:.1f}m'
+                    label = f'Conf: {conf:.2f} | Dist: {distance_m:.1f}m | Dir: {dir_label}'
                 else:
-                    label = f'Conf: {conf:.2f} | Dist: N/A (not calibrated)'
-
-                # TODO: append orientation label here once that feature lands
-                # e.g. label += f' | Heading: {orientation_deg:.0f} deg'
+                    label = f'Conf: {conf:.2f} | Dist: N/A | Dir: {dir_label}'
 
                 cv2.putText(annotated_frame,
                            label,
