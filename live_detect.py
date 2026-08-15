@@ -1,30 +1,8 @@
-import contextlib
-import io
-import os
 import cv2
 import threading
-
-try:
-    import yaml
-except ImportError:  # pragma: no cover
-    yaml = None
-
 from ultralytics import YOLO
 
-# Distance estimation (from v2) — requires camera_config.json produced by
-# calibrate_focal_length.py. If that hasn't been run yet, distance display
-# is disabled but detection still works.
-try:
-    from distance_estimation import estimate_distance, load_focal_length, KNOWN_WIDTH_M
-    DISTANCE_MODULE_AVAILABLE = True
-except ImportError:
-    DISTANCE_MODULE_AVAILABLE = False
 
-# ── Suppress OpenCV backend warnings ─────────────────────────────
-if hasattr(cv2, "setLogLevel"):
-    cv2.setLogLevel(0)
-
-# ── Camera Backend Utilities ──────────────────────────────────────
 def get_backend_name(backend):
     if backend is None:
         return "default"
@@ -33,214 +11,89 @@ def get_backend_name(backend):
         cv2.CAP_DSHOW: "CAP_DSHOW",
         cv2.CAP_MSMF: "CAP_MSMF",
         cv2.CAP_VFW: "CAP_VFW",
+        cv2.CAP_AVFOUNDATION: "CAP_AVFOUNDATION",
     }
-    if hasattr(cv2, "CAP_AVFOUNDATION"):
-        backend_names[cv2.CAP_AVFOUNDATION] = "CAP_AVFOUNDATION"
     return backend_names.get(backend, str(backend))
 
 
-def get_platform_backends():
-    """Return backends appropriate for the current OS."""
-    backends = [None]
-    if os.name == "nt":
-        backends += [cv2.CAP_DSHOW, cv2.CAP_MSMF]
-    elif hasattr(cv2, "CAP_AVFOUNDATION"):
-        backends += [cv2.CAP_AVFOUNDATION]
-    else:
-        backends += [cv2.CAP_ANY]
-    return backends
-
-# ─── New direction helper ──────────────────────────────────────────
-def get_direction_label(box, frame_width, frame_height):
-    """Return 'east/west/north/south' based on box center relative to frame center."""
-    x1, y1, x2, y2 = box.xyxy[0].tolist()
-    center_x = (x1 + x2) / 2
-    center_y = (y1 + y2) / 2
-    frame_center_x = frame_width / 2
-    frame_center_y = frame_height / 2
-    if abs(center_x - frame_center_x) > abs(center_y - frame_center_y):
-        return "east" if center_x > frame_center_x else "west"
-    return "south" if center_y > frame_center_y else "north"
-# ─── End of new helper ─────────────────────────────────────────────
-
-def try_open_camera(index, backend=None):
-    """Attempt to open a camera silently. Returns (cap, frame) or None."""
-    with contextlib.redirect_stderr(io.StringIO()):
-        cap = cv2.VideoCapture(index) if backend is None else cv2.VideoCapture(index, backend)
-        if not cap.isOpened():
-            cap.release()
-            return None
-        ret, frame = cap.read()
-        if not ret or frame is None:
-            cap.release()
-            return None
-    return cap, frame
-
-
 def find_available_cameras(max_devices=10):
-    """Scan for available cameras across all platform backends."""
-    backends = get_platform_backends()
+    backends = [None]
+    for backend in [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_VFW, cv2.CAP_AVFOUNDATION]:
+        if hasattr(cv2, "CAP_DSHOW") and backend is not None:
+            backends.append(backend)
+
     discovered = []
     seen = set()
 
-    for index in range(max_devices):
-        for backend in backends:
-            result = try_open_camera(index, backend)
-            if result is None:
+    for backend in backends:
+        for index in range(max_devices):
+            if backend is None:
+                cap = cv2.VideoCapture(index)
+            else:
+                cap = cv2.VideoCapture(index, backend)
+
+            if not cap.isOpened():
+                cap.release()
                 continue
-            cap, frame = result
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+            ret, _ = cap.read()
             cap.release()
-            key = (index, backend)
-            if key not in seen:
-                seen.add(key)
-                discovered.append((index, backend, width, height))
-            break
+
+            if ret:
+                key = (index, backend)
+                if key not in seen:
+                    seen.add(key)
+                    discovered.append((index, backend))
 
     return discovered
 
 
-def open_selected_camera(index, preferred_backend=None):
-    """Open a camera with fallback across backends."""
-    backends = []
-    if preferred_backend is not None:
-        backends.append(preferred_backend)
-    for b in get_platform_backends():
-        if b not in backends:
-            backends.append(b)
+# Load INT8 OpenVINO model
+model = YOLO('runs/detect/train_v2_151img/weights/best_int8_openvino_model/')
 
-    for backend in backends:
-        result = try_open_camera(index, backend)
-        if result is not None:
-            cap, _ = result
-            return cap, backend
-
-    return None, None
-
-
-# ── Model Configuration ─────────────────────────────────────────────
-def get_model_imgsz(model_path):
-    """Read the exported model metadata and return the expected input size."""
-    metadata_path = os.path.join(model_path, "metadata.yaml")
-    if not os.path.exists(metadata_path):
-        return 640
-
-    try:
-        if yaml is None:
-            raise ImportError("PyYAML is not available")
-        with open(metadata_path, "r", encoding="utf-8") as f:
-            metadata = yaml.safe_load(f) or {}
-    except Exception:
-        return 640
-
-    imgsz = metadata.get("imgsz")
-    if isinstance(imgsz, (list, tuple)):
-        if not imgsz:
-            return 640
-        return int(imgsz[0])
-    if isinstance(imgsz, str):
-        try:
-            return int(imgsz)
-        except ValueError:
-            return 640
-    if isinstance(imgsz, int):
-        return imgsz
-    return 640
-
-
-MODEL_PATH = os.environ.get(
-    "MARITIME_MODEL_PATH",
-    "runs/detect/train_v3_more_data/ferry_v3_map0.924_recall0.889_int8_openvino_model/"
-)
-MODEL_IMGSZ = get_model_imgsz(MODEL_PATH)
-
-print(f"Loading model from: {MODEL_PATH}")
-with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-    model = YOLO(MODEL_PATH)
-print(f"Model loaded successfully. Expected input size: {MODEL_IMGSZ}x{MODEL_IMGSZ}.")
-
-# ── Distance Estimation Setup ──────────────────────────────────────
-FOCAL_LENGTH_PX = None
-if DISTANCE_MODULE_AVAILABLE:
-    try:
-        FOCAL_LENGTH_PX = load_focal_length()
-        print(f"Loaded focal length: {FOCAL_LENGTH_PX:.1f}px "
-              f"(reference width: {KNOWN_WIDTH_M}m)")
-    except FileNotFoundError as e:
-        print(f"WARNING: {e}")
-        print("Distance estimation will be disabled until calibration is run.")
-else:
-    print("WARNING: distance_estimation module not found — distance display disabled.")
-
-# NOTE: focal length calibration is tied to the resolution it was calibrated
-# at. If the camera you select below ends up running at a different
-# resolution than calibration used, distances will be skewed. A mismatch
-# warning is printed once the actual capture resolution is known.
-
-# ── Camera Scan and Selection ─────────────────────────────────────
-print("\nScanning for available cameras...")
+# Discover and let the user choose a camera
 available_cameras = find_available_cameras()
 
 if not available_cameras:
-    print("Error: No cameras detected. Please connect a camera and try again.")
+    print("Error: No camera devices were detected.")
     exit()
 
 print("Available cameras:")
-for i, (index, backend, width, height) in enumerate(available_cameras, 1):
-    print(f"  [{i}] Camera index {index} — {width}x{height} — backend: {get_backend_name(backend)}")
+for i, (index, backend) in enumerate(available_cameras, 1):
+    print(f"  {i}. Camera index {index} using {get_backend_name(backend)}")
 
 if len(available_cameras) == 1:
     selected_index = 0
-    print("\nOnly one camera detected — using it automatically.")
 else:
-    while True:
-        selection = input(f"\nSelect camera [1-{len(available_cameras)}]: ").strip()
-        if selection == "":
-            selected_index = 0
-            print("No selection — defaulting to camera 1.")
-            break
-        try:
-            selected_index = int(selection) - 1
-            if 0 <= selected_index < len(available_cameras):
-                break
-            print(f"Invalid selection. Please enter a number between 1 and {len(available_cameras)}.")
-        except ValueError:
-            print(f"Invalid input. Please enter a number between 1 and {len(available_cameras)}.")
+    selection = input("Select a camera number: ").strip()
+    try:
+        selected_index = int(selection) - 1
+        if selected_index < 0 or selected_index >= len(available_cameras):
+            raise ValueError
+    except ValueError:
+        print("Invalid selection. Using the first detected camera.")
+        selected_index = 0
 
-camera_index, camera_backend, cam_width, cam_height = available_cameras[selected_index]
-print(f"\nOpening camera {camera_index} ({cam_width}x{cam_height})...")
+camera_index, camera_backend = available_cameras[selected_index]
 
-cap, opened_backend = open_selected_camera(camera_index, camera_backend)
+if camera_backend is None:
+    cap = cv2.VideoCapture(camera_index)
+else:
+    cap = cv2.VideoCapture(camera_index, camera_backend)
 
-if cap is None:
-    print(f"Error: Could not open camera {camera_index}.")
+if not cap.isOpened():
+    print("Error: Could not open the selected camera.")
     exit()
 
-# Request a resolution, but don't assume the camera honours it — read back
-# whatever it actually delivers and use THAT everywhere downstream
-# (display, distance calc). This is what makes the script resolution-agnostic
-# across different cameras rather than hardcoding 1280x720.
-REQUESTED_WIDTH, REQUESTED_HEIGHT = 1280, 720
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, REQUESTED_WIDTH)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, REQUESTED_HEIGHT)
-
-ACTUAL_WIDTH = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-ACTUAL_HEIGHT = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-print(f"Camera opened successfully. Running at {ACTUAL_WIDTH}x{ACTUAL_HEIGHT}.")
-if (ACTUAL_WIDTH, ACTUAL_HEIGHT) != (REQUESTED_WIDTH, REQUESTED_HEIGHT):
-    print(f"Note: requested {REQUESTED_WIDTH}x{REQUESTED_HEIGHT} but camera returned "
-          f"{ACTUAL_WIDTH}x{ACTUAL_HEIGHT}. Continuing with the actual resolution.")
-if FOCAL_LENGTH_PX is not None:
-    print("Note: distance estimates assume the capture resolution matches what "
-          "calibrate_focal_length.py was run at. Re-calibrate if resolutions differ.")
+# Set resolution
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
 
 print("Live detection running.")
 print("Press Q to quit.")
 print("Press S to save a screenshot.")
 
-# ── Shared State ──────────────────────────────────────────────────
+# Shared state between threads
 latest_frame = None
 latest_results = None
 frame_lock = threading.Lock()
@@ -248,14 +101,28 @@ results_lock = threading.Lock()
 running = True
 screenshot_count = 0
 
-# ── Orientation feature is now integrated (see get_direction_label) ──
 
-# ── Inference Thread ──────────────────────────────────────────────
+def get_direction_label(box, frame_width, frame_height):
+    """Return a cardinal direction based on the box center relative to the frame center."""
+    x1, y1, x2, y2 = box.xyxy[0].tolist()
+    center_x = (x1 + x2) / 2
+    center_y = (y1 + y2) / 2
+
+    frame_center_x = frame_width / 2
+    frame_center_y = frame_height / 2
+
+    if abs(center_x - frame_center_x) > abs(center_y - frame_center_y):
+        return "east" if center_x > frame_center_x else "west"
+    return "south" if center_y > frame_center_y else "north"
+
+
+# ── Inference thread ──────────────────────────────────────────────
 def inference_thread():
     global latest_results, running
     frame_count = 0
 
     while running:
+        # Safely grab the latest frame
         with frame_lock:
             if latest_frame is None:
                 continue
@@ -263,37 +130,46 @@ def inference_thread():
 
         frame_count += 1
 
+        # Run detection every 5th frame
         if frame_count % 5 == 0:
             results = model(
                 frame,
                 conf=0.6,
                 verbose=False,
-                imgsz=MODEL_IMGSZ,
+                imgsz=320,
                 half=True
             )
+            # Safely store results
             with results_lock:
                 latest_results = results
 
-# ── Start Inference Thread ────────────────────────────────────────
+# ── Start inference thread ────────────────────────────────────────
 thread = threading.Thread(target=inference_thread, daemon=True)
 thread.start()
 
-# ── Main Display Loop ─────────────────────────────────────────────
+# ── Main display loop ─────────────────────────────────────────────
 while True:
     ret, frame = cap.read()
     if not ret:
         print("Error: Could not read frame.")
         break
 
+    # Safely update the shared frame for inference thread
     with frame_lock:
         latest_frame = frame.copy()
 
+    # Safely read latest results for display
     with results_lock:
         current_results = latest_results
 
+    # Draw results on frame
     if current_results is not None:
         annotated_frame = current_results[0].plot()
+
+        # Count detections
         detections = len(current_results[0].boxes)
+
+        # Display detection count
         color = (0, 255, 0) if detections > 0 else (0, 0, 255)
         cv2.putText(annotated_frame,
                     f'Ferries detected: {detections}',
@@ -301,26 +177,20 @@ while True:
                     cv2.FONT_HERSHEY_SIMPLEX,
                     1, color, 2)
 
+        # Display confidence scores and direction
         if detections > 0:
             for i, box in enumerate(current_results[0].boxes):
                 conf = float(box.conf[0])
-
-                # Bounding box width in pixels (x2 - x1) — used for distance
-                x1, y1, x2, y2 = box.xyxy[0].tolist()
-                bbox_width_px = x2 - x1
-
-                # Compute direction label
-                dir_label = get_direction_label(box, ACTUAL_WIDTH, ACTUAL_HEIGHT)
-
-                if FOCAL_LENGTH_PX is not None:
-                    distance_m = estimate_distance(bbox_width_px, FOCAL_LENGTH_PX)
-                    label = f'Conf: {conf:.2f} | Dist: {distance_m:.1f}m | Dir: {dir_label}'
-                else:
-                    label = f'Conf: {conf:.2f} | Dist: N/A | Dir: {dir_label}'
+                direction = get_direction_label(box, annotated_frame.shape[1], annotated_frame.shape[0])
 
                 cv2.putText(annotated_frame,
-                           label,
+                           f'Conf: {conf:.2f}',
                            (20, 80 + (i * 40)),
+                           cv2.FONT_HERSHEY_SIMPLEX,
+                           0.8, (255, 255, 0), 2)
+                cv2.putText(annotated_frame,
+                           f'Direction: {direction}',
+                           (20, 110 + (i * 40)),
                            cv2.FONT_HERSHEY_SIMPLEX,
                            0.8, (255, 255, 0), 2)
     else:
@@ -331,9 +201,9 @@ while True:
                     cv2.FONT_HERSHEY_SIMPLEX,
                     1, (255, 255, 0), 2)
 
+    # Display settings info at bottom of frame
     cv2.putText(annotated_frame,
-                f'Camera: {camera_index} | OpenVINO INT8 | {ACTUAL_WIDTH}x{ACTUAL_HEIGHT} | '
-                f'imgsz={MODEL_IMGSZ} | conf=0.6 | Every 5th frame',
+                'OpenVINO INT8 | Threaded | imgsz=320 | conf=0.6 | Every 5th frame',
                 (20, annotated_frame.shape[0] - 20),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5, (200, 200, 200), 1)
@@ -342,17 +212,19 @@ while True:
 
     key = cv2.waitKey(1) & 0xFF
 
+    # Q to quit
     if key == ord('q'):
         running = False
         break
 
+    # S to save screenshot
     if key == ord('s'):
         screenshot_path = f'screenshot_{screenshot_count}.jpg'
         cv2.imwrite(screenshot_path, annotated_frame)
         print(f"Screenshot saved: {screenshot_path}")
         screenshot_count += 1
 
-# ── Cleanup ───────────────────────────────────────────────────────
+# Cleanup
 running = False
 cap.release()
 cv2.destroyAllWindows()
