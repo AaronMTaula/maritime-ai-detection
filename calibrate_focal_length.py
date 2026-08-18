@@ -1,4 +1,16 @@
 """
+[OPTIONAL / LEGACY] Manual camera calibration -- NO LONGER REQUIRED.
+
+As of the zero-calibration update, live_detect.py automatically derives
+focal length from known camera hardware specs (see camera_profiles.py)
+and needs no manual setup on first run.
+
+This script is kept only as an optional accuracy-validation tool: if you
+want to cross-check the metadata-derived focal length against a real
+manual measurement (e.g. while field testing), you can still run this
+and compare its output to camera_profiles.get_focal_length_px(). It is
+NOT wired into live_detect.py or distance_estimation.py anymore.
+
 One-time camera calibration for monocular distance estimation.
 
 HOW TO USE:
