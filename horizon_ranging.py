@@ -36,11 +36,19 @@ How it works:
      to get the target's true depression angle below level.
   5. Solve: distance = height / tan(depression angle).
 
-This method is only trusted when a horizon can be confidently detected.
-In enclosed harbours (blocked by land/wharves), fog, rough seas, or
-close-range shots where no horizon is visible, it reports "unavailable"
-(returns None) so the caller can fall back to the width-based estimate
-in distance_estimation.py.
+WHEN TO USE THIS: open water with a clear, level sea horizon (ideally a
+fixed mount). It is OFF by default and switched on per configuration in
+the Settings window. In harbours the visible "horizon" is usually a
+skyline of hills, buildings or trees, which sits well ABOVE the true sea
+horizon -- using it as the level reference would add a large angular
+error, so a more forgiving detector would make results worse, not
+better. The width-based estimate (distance_estimation.py) does not
+depend on the horizon or on camera tilt at all, so it carries the
+system everywhere this method can't.
+
+Even when enabled, this method reports "unavailable" (returns None)
+whenever no horizon is confidently detected, and the caller falls back
+to the width-based estimate.
 
 CAMERA_HEIGHT_ABOVE_WATER_M is the one remaining physical constant this
 method needs -- set once at installation time (measured from the camera
@@ -52,7 +60,7 @@ import cv2
 import numpy as np
 import math
 
-from app_config import load_config
+from app_config import get_active_settings
 
 # Developer-only fallback if the Settings UI has genuinely never been
 # run. Clients set the real value through that UI (camera_setup_ui.py),
@@ -61,9 +69,13 @@ DEFAULT_CAMERA_HEIGHT_M = 1.5
 
 
 def get_camera_height_m():
-    """Camera height above the waterline, metres -- from the Settings UI config."""
-    cfg = load_config()
-    return cfg.get("camera_height_m") or DEFAULT_CAMERA_HEIGHT_M
+    """Camera height above the waterline, metres -- from the Settings window."""
+    return get_active_settings().get("camera_height_m") or DEFAULT_CAMERA_HEIGHT_M
+
+
+def horizon_assist_enabled():
+    """True only if the user turned on horizon-assisted ranging in Settings."""
+    return bool(get_active_settings().get("horizon_assist"))
 
 
 # Kept for any external code/backwards compatibility that reads this

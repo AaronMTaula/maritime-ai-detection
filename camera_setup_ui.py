@@ -1,19 +1,18 @@
 """
-Camera Settings UI -- the ONLY place camera setup happens for the end
-user. No source code edits required, ever.
+Settings window -- the ONLY place camera setup happens for the end user.
+No source code or file edits required, ever.
 
-Flow:
-  1. Try to auto-detect the connected camera (best effort).
-  2. Pre-fill the dropdown with the best guess if one was found.
-  3. Let the user confirm (or pick a different camera from the dropdown
-     if detection was wrong / unavailable).
-  4. Ask for the camera's mount height above the waterline -- a single
-     number, with a plain-English explanation of what it's for.
-  5. Save the result via app_config.py.
+Shown on every launch, and again any time the user clicks "Settings"
+inside the main program. It lets the user:
+  * pick from their saved configurations (last used is pre-selected, so
+    starting is one click / Enter),
+  * create a new configuration, or edit and re-save an existing one,
+  * delete configurations they no longer need.
 
-This appears automatically on first run (see live_detect.py), and can be
-reopened at any time from the main program (press 'C' during live
-detection) if the hardware ever changes -- still no code editing.
+A configuration is: a camera, plus (optionally) horizon-assisted ranging
+with the camera's mount height. Horizon assist is off by default and the
+height box stays greyed out until it's ticked, so most users only ever
+choose a camera.
 """
 
 import tkinter as tk
@@ -21,107 +20,220 @@ from tkinter import ttk, messagebox
 
 from camera_profiles import CAMERA_PROFILES
 from camera_auto_detect import detect_connected_camera_name, match_profile_from_name
-from app_config import save_config, load_config
+from app_config import (
+    list_configs, save_config, delete_config,
+    get_last_used, set_last_used, set_active_settings,
+)
+
+DEFAULT_HEIGHT_TEXT = "1.5"
 
 
-def run_setup_dialog(force=False):
+def run_setup_dialog():
     """
     Show the Settings window.
 
-    Returns the saved config dict once the user confirms, or None if
-    they cancelled (the caller should not proceed to launch the camera
-    view in that case).
-
-    If force=False and the app is already fully configured, this
-    returns the existing config immediately without showing anything.
+    Returns True if the user pressed Start (the chosen settings are then
+    active for this session), or False if they closed/cancelled it.
     """
-    existing = load_config()
-    if not force and existing.get("camera_profile") and existing.get("camera_height_m") is not None:
-        return existing
-
-    result = {}
-
-    root = tk.Tk()
-    root.title("Maritime Detection -- Camera Setup")
-    root.geometry("480x380")
-    root.resizable(False, False)
-
-    detected_name = detect_connected_camera_name()
-    guessed_profile = match_profile_from_name(detected_name, CAMERA_PROFILES)
-
-    tk.Label(root, text="Camera Setup", font=("Helvetica", 15, "bold")).pack(pady=(18, 4))
-    tk.Label(root, text="This only needs to be set once for this device.",
-             fg="#666666").pack(pady=(0, 12))
-
-    if detected_name:
-        tk.Label(root, text=f"Detected camera: {detected_name}", fg="#2a7a2a").pack(pady=(0, 10))
-    else:
-        tk.Label(root, text="Couldn't auto-detect a camera -- please select below.",
-                 fg="#a05a00").pack(pady=(0, 10))
-
-    tk.Label(root, text="Camera:").pack(anchor="w", padx=28)
     profile_keys = list(CAMERA_PROFILES.keys())
     profile_labels = [CAMERA_PROFILES[k]["label"] for k in profile_keys]
 
-    current_profile = existing.get("camera_profile") or guessed_profile
-    default_idx = profile_keys.index(current_profile) if current_profile in profile_keys else 0
+    detected_name = detect_connected_camera_name()
+    guessed_profile = match_profile_from_name(detected_name, CAMERA_PROFILES)
+    default_profile = guessed_profile if guessed_profile in profile_keys else profile_keys[0]
 
-    profile_var = tk.StringVar(value=profile_labels[default_idx])
-    profile_dropdown = ttk.Combobox(
-        root, textvariable=profile_var, values=profile_labels,
-        state="readonly", width=48
-    )
-    profile_dropdown.pack(padx=28, pady=(2, 16))
+    outcome = {"started": False}
 
-    tk.Label(root, text="Camera height above the waterline (metres):").pack(anchor="w", padx=28)
-    tk.Label(
-        root,
-        text="Measure straight down from where the camera is mounted to\n"
-             "the water's surface. A rough estimate is fine.",
-        fg="#666666", justify="left"
-    ).pack(anchor="w", padx=28, pady=(0, 6))
+    root = tk.Tk()
+    root.title("Maritime Detection -- Settings")
+    root.geometry("560x560")
+    root.resizable(False, False)
 
-    height_var = tk.StringVar(value=str(existing.get("camera_height_m") or "1.5"))
-    height_entry = tk.Entry(root, textvariable=height_var, width=10)
-    height_entry.pack(padx=28, pady=(0, 24), anchor="w")
+    tk.Label(root, text="Camera Settings", font=("Helvetica", 15, "bold")).pack(pady=(14, 2))
+    if detected_name:
+        tk.Label(root, text=f"Detected camera: {detected_name}", fg="#2a7a2a").pack()
+    else:
+        tk.Label(root, text="No camera auto-detected -- choose one below.", fg="#a05a00").pack()
 
-    def on_confirm():
-        try:
-            height_m = float(height_var.get())
-            if height_m <= 0:
-                raise ValueError
-        except ValueError:
-            messagebox.showerror(
-                "Invalid height",
-                "Please enter a positive number of metres, e.g. 1.5"
-            )
+    # ── Saved configurations list ─────────────────────────────────
+    list_frame = ttk.LabelFrame(root, text="Saved configurations")
+    list_frame.pack(fill="x", padx=20, pady=(12, 6))
+
+    listbox = tk.Listbox(list_frame, height=5, exportselection=False, activestyle="none")
+    listbox.pack(side="left", fill="x", expand=True, padx=(8, 4), pady=8)
+
+    list_buttons = tk.Frame(list_frame)
+    list_buttons.pack(side="right", padx=(4, 8), pady=8)
+
+    # ── Configuration form ────────────────────────────────────────
+    form = ttk.LabelFrame(root, text="Configuration")
+    form.pack(fill="x", padx=20, pady=6)
+
+    tk.Label(form, text="Name:").grid(row=0, column=0, sticky="w", padx=8, pady=(8, 2))
+    name_var = tk.StringVar()
+    tk.Entry(form, textvariable=name_var, width=28).grid(row=0, column=1, sticky="w", pady=(8, 2))
+
+    tk.Label(form, text="Camera:").grid(row=1, column=0, sticky="w", padx=8, pady=2)
+    profile_var = tk.StringVar(value=CAMERA_PROFILES[default_profile]["label"])
+    ttk.Combobox(form, textvariable=profile_var, values=profile_labels,
+                 state="readonly", width=32).grid(row=1, column=1, sticky="w", pady=2)
+
+    horizon_var = tk.BooleanVar(value=False)
+    tk.Checkbutton(form, text="Use horizon-assisted ranging (open water only)",
+                   variable=horizon_var).grid(row=2, column=0, columnspan=2, sticky="w", padx=6, pady=(8, 0))
+    tk.Label(form, text="Leave off on harbours and ferries -- distance still works without it.",
+             fg="#666666").grid(row=3, column=0, columnspan=2, sticky="w", padx=26)
+
+    tk.Label(form, text="Camera height above water (m):").grid(row=4, column=0, sticky="w", padx=8, pady=(6, 8))
+    height_var = tk.StringVar(value=DEFAULT_HEIGHT_TEXT)
+    height_entry = tk.Entry(form, textvariable=height_var, width=8, state="disabled")
+    height_entry.grid(row=4, column=1, sticky="w", pady=(6, 8))
+
+    def sync_height_state(*_):
+        height_entry.configure(state="normal" if horizon_var.get() else "disabled")
+    horizon_var.trace_add("write", sync_height_state)
+
+    status_var = tk.StringVar(value="")
+    tk.Label(root, textvariable=status_var, fg="#2a7a2a").pack(pady=(2, 0))
+
+    # ── Helpers ───────────────────────────────────────────────────
+    def refresh_list(select_name=None):
+        listbox.delete(0, "end")
+        names = sorted(list_configs().keys(), key=str.lower)
+        for n in names:
+            listbox.insert("end", n)
+        if select_name in names:
+            idx = names.index(select_name)
+            listbox.selection_set(idx)
+            listbox.see(idx)
+
+    def selected_name():
+        sel = listbox.curselection()
+        return listbox.get(sel[0]) if sel else None
+
+    def load_into_form(name):
+        cfg = list_configs().get(name)
+        if not cfg:
             return
+        name_var.set(name)
+        key = cfg.get("camera_profile")
+        if key in profile_keys:
+            profile_var.set(CAMERA_PROFILES[key]["label"])
+        horizon_var.set(bool(cfg.get("horizon_assist")))
+        height = cfg.get("camera_height_m")
+        height_var.set(str(height) if height else DEFAULT_HEIGHT_TEXT)
+        sync_height_state()
 
-        selected_label = profile_var.get()
-        selected_key = profile_keys[profile_labels.index(selected_label)]
+    def clear_form():
+        name_var.set("")
+        profile_var.set(CAMERA_PROFILES[default_profile]["label"])
+        horizon_var.set(False)
+        height_var.set(DEFAULT_HEIGHT_TEXT)
+        sync_height_state()
 
-        cfg = save_config({
-            "camera_profile": selected_key,
-            "camera_height_m": height_m,
-        })
-        result.update(cfg)
+    def collect_settings():
+        """Read the form; returns a settings dict, or None after showing an error."""
+        key = profile_keys[profile_labels.index(profile_var.get())]
+        height = None
+        if horizon_var.get():
+            try:
+                height = float(height_var.get())
+                if height <= 0:
+                    raise ValueError
+            except ValueError:
+                messagebox.showerror("Invalid height",
+                                     "Please enter the camera height above the water in metres, e.g. 1.5")
+                return None
+        return {"camera_profile": key, "camera_height_m": height,
+                "horizon_assist": horizon_var.get()}
+
+    # ── Button handlers ───────────────────────────────────────────
+    def on_select(_event=None):
+        name = selected_name()
+        if name:
+            load_into_form(name)
+            status_var.set("")
+
+    def on_new():
+        listbox.selection_clear(0, "end")
+        clear_form()
+        status_var.set("")
+
+    def on_delete():
+        name = selected_name()
+        if not name:
+            messagebox.showinfo("Delete", "Select a saved configuration to delete.")
+            return
+        if messagebox.askyesno("Delete configuration", f"Delete '{name}'? This can't be undone."):
+            delete_config(name)
+            refresh_list()
+            clear_form()
+            status_var.set(f"Deleted '{name}'.")
+
+    def on_save():
+        name = name_var.get().strip()
+        if not name:
+            messagebox.showerror("Name needed", "Give this configuration a name so you can find it later.")
+            return
+        settings = collect_settings()
+        if settings is None:
+            return
+        if name in list_configs() and name != selected_name():
+            if not messagebox.askyesno("Overwrite?", f"'{name}' already exists. Replace it?"):
+                return
+        save_config(name, settings)
+        refresh_list(select_name=name)
+        status_var.set(f"Saved '{name}'.")
+
+    def on_start():
+        settings = collect_settings()
+        if settings is None:
+            return
+        set_active_settings(settings)
+        name = selected_name()
+        if name:
+            set_last_used(name)
+        outcome["started"] = True
         root.destroy()
 
     def on_cancel():
         root.destroy()
 
-    button_frame = tk.Frame(root)
-    button_frame.pack(pady=6)
-    tk.Button(
-        button_frame, text="Confirm & Start", command=on_confirm,
-        bg="#2a7a2a", fg="white", padx=14, pady=4
-    ).pack(side="left", padx=6)
-    tk.Button(button_frame, text="Cancel", command=on_cancel, padx=14, pady=4).pack(side="left", padx=6)
+    tk.Button(list_buttons, text="New", width=8, command=on_new).pack(pady=2)
+    tk.Button(list_buttons, text="Delete", width=8, command=on_delete).pack(pady=2)
+    listbox.bind("<<ListboxSelect>>", on_select)
+
+    tk.Label(root, text="Start uses what's shown above. Click Save to keep it for next time.",
+             fg="#666666").pack(pady=(4, 0))
+
+    buttons = tk.Frame(root)
+    buttons.pack(pady=12)
+    tk.Button(buttons, text="Save configuration", command=on_save, padx=10, pady=4).pack(side="left", padx=6)
+    tk.Button(buttons, text="Start", command=on_start, bg="#2a7a2a", fg="white",
+              padx=22, pady=4).pack(side="left", padx=6)
+    tk.Button(buttons, text="Cancel", command=on_cancel, padx=10, pady=4).pack(side="left", padx=6)
+
+    root.bind("<Return>", lambda _e: on_start())
+    root.protocol("WM_DELETE_WINDOW", on_cancel)
+
+    # ── Initial state: pre-select the last used configuration ─────
+    last_used = get_last_used()
+    refresh_list(select_name=last_used)
+    if last_used:
+        load_into_form(last_used)
+    else:
+        clear_form()
+        if not list_configs():
+            name_var.set("Default")
+
+    # Bring the window to the front (Tk windows can open behind the terminal on macOS)
+    root.lift()
+    root.attributes("-topmost", True)
+    root.after(300, lambda: root.attributes("-topmost", False))
 
     root.mainloop()
-    return result if result else None
+    return outcome["started"]
 
 
 if __name__ == "__main__":
-    cfg = run_setup_dialog(force=True)
-    print(f"Saved config: {cfg}")
+    print("Started" if run_setup_dialog() else "Cancelled")

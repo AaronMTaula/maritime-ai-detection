@@ -5,13 +5,13 @@ from ultralytics import YOLO
 from app_config import is_configured
 from camera_setup_ui import run_setup_dialog
 from distance_estimation import estimate_distance, load_focal_length, load_horizontal_fov_deg, KNOWN_WIDTH_M
-from horizon_ranging import estimate_distance_via_horizon, detect_horizon_row, get_camera_height_m
+from horizon_ranging import estimate_distance_via_horizon, detect_horizon_row, get_camera_height_m, horizon_assist_enabled
 from ui_hud import (
     SelectionState, mouse_callback, update_selection,
-    draw_detections, draw_info_callout, draw_radar_panel, draw_horizon_line
+    draw_detections, draw_info_callout, draw_radar_panel, draw_horizon_line,
+    draw_settings_button
 )
 
-<<<<<<< HEAD
 
 def find_camera_index():
     print("Scanning for available cameras...")
@@ -64,28 +64,15 @@ if not is_configured():
         print("Setup was cancelled. Exiting.")
         exit()
 
-=======
-# ── First-run setup (or if the config is somehow incomplete) ──────
-# This is the ONLY place camera setup happens for the end user -- a
-# small window, not a code edit. Press 'C' during live detection to
-# reopen this later if the hardware changes.
-if not is_configured():
-    print("First run detected -- opening Camera Setup window...")
-    cfg = run_setup_dialog()
-    if cfg is None:
-        print("Setup was cancelled. Exiting.")
-        exit()
-
->>>>>>> 618dd2e (Refine classification detection workflow)
 # Load INT8 OpenVINO model
 model = YOLO('runs/detect/train_v2_151img/weights/best_int8_openvino_model/')
 
 print("Zero-calibration mode: focal length derived from the camera profile "
       "chosen in Camera Setup. No manual code edits needed.")
 print(f"Reference vessel width: {KNOWN_WIDTH_M}m | "
-      f"Camera height above waterline: {get_camera_height_m()}m")
+      f"Camera height above waterline: {get_camera_height_m()}m | "
+      f"Horizon-assisted ranging: {'on' if horizon_assist_enabled() else 'off'}")
 
-<<<<<<< HEAD
 CAMERA_INDEX = find_camera_index()
 print(f"\nUsing camera index {CAMERA_INDEX}")
 
@@ -94,13 +81,9 @@ if sys.platform.startswith("win"):
     cap = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_DSHOW)
 else:
     cap = cv2.VideoCapture(CAMERA_INDEX)
-=======
-# Open webcam (use cv2.VideoCapture(0, cv2.CAP_DSHOW) instead on Windows)
-cap = cv2.VideoCapture(0)
->>>>>>> 618dd2e (Refine classification detection workflow)
 
 if not cap.isOpened():
-    print("Error: Could not open camera.")
+    print(f"Error: Could not open camera {CAMERA_INDEX}.")
     exit()
 
 # Set resolution
@@ -124,10 +107,7 @@ screenshot_count = 0
 # Click-to-select state (Feature 1 + 2)
 selection_state = SelectionState()
 
-<<<<<<< HEAD
 
-=======
->>>>>>> 618dd2e (Refine classification detection workflow)
 # ── Inference thread ──────────────────────────────────────────────
 def inference_thread():
     global latest_results, running
@@ -141,7 +121,6 @@ def inference_thread():
 
         frame_count += 1
 
-        # Run detection every 5th frame
         if frame_count % 5 == 0:
             results = model(
                 frame,
@@ -153,11 +132,7 @@ def inference_thread():
             with results_lock:
                 latest_results = results
 
-<<<<<<< HEAD
 
-=======
->>>>>>> 618dd2e (Refine classification detection workflow)
-# ── Start inference thread ────────────────────────────────────────
 thread = threading.Thread(target=inference_thread, daemon=True)
 thread.start()
 
@@ -165,6 +140,19 @@ thread.start()
 window_name = 'Maritime Ferry Detection - Live'
 cv2.namedWindow(window_name)
 cv2.setMouseCallback(window_name, mouse_callback, selection_state)
+
+
+def open_settings():
+    """Reopen the Settings window from inside the live view."""
+    cv2.destroyAllWindows()
+    for _ in range(5):
+        cv2.waitKey(1)
+    run_setup_dialog(force=True)
+    cv2.namedWindow(window_name)
+    cv2.setMouseCallback(window_name, mouse_callback, selection_state)
+    selection_state.settings_requested = False
+    selection_state.click_point = None
+
 
 # ── Main display loop ─────────────────────────────────────────────
 while True:
@@ -179,45 +167,28 @@ while True:
     with results_lock:
         current_results = latest_results
 
-    # Focal length + FOV, computed automatically each frame from the
-    # active camera profile (no calibration step, no config file to load)
     frame_width = frame.shape[1]
     focal_length_px = load_focal_length(frame_width)
     hfov_deg = load_horizontal_fov_deg()
 
-    # Horizon detection runs every frame (cheap -- no neural net involved),
-    # independent of ship detection. Used for the visual overlay and as
-    # an input to the Layer 2 distance refinement below.
-    horizon_row, horizon_confidence = detect_horizon_row(frame)
+    use_horizon = horizon_assist_enabled()
+    if use_horizon:
+        horizon_row, horizon_confidence = detect_horizon_row(frame)
+    else:
+        horizon_row, horizon_confidence = None, 0.0
 
     if current_results is not None:
         boxes = current_results[0].boxes
         boxes_xyxy = [b.xyxy[0].tolist() for b in boxes]
         confidences = [float(b.conf[0]) for b in boxes]
-<<<<<<< HEAD
-=======
-        # model.names supports the full taxonomy (ferry/crane/bird/port_structure)
-        # even though only 'ferry' is trained on right now
->>>>>>> 618dd2e (Refine classification detection workflow)
         labels = [model.names[int(b.cls[0])].capitalize() for b in boxes]
 
         annotated_frame = frame.copy()
-
         draw_horizon_line(annotated_frame, horizon_row, horizon_confidence)
 
-<<<<<<< HEAD
         selected_idx = update_selection(selection_state, boxes_xyxy)
         draw_detections(annotated_frame, boxes_xyxy, labels, confidences, selected_idx)
 
-=======
-        # Resolve clicks + frame-to-frame tracking of the selected ship
-        selected_idx = update_selection(selection_state, boxes_xyxy)
-
-        # Draw all boxes, highlighting the selected one
-        draw_detections(annotated_frame, boxes_xyxy, labels, confidences, selected_idx)
-
-        # Detection count banner
->>>>>>> 618dd2e (Refine classification detection workflow)
         detections = len(boxes_xyxy)
         color = (0, 255, 0) if detections > 0 else (0, 0, 255)
         cv2.putText(annotated_frame, f'Ferries detected: {detections}', (20, 40),
@@ -231,15 +202,9 @@ while True:
         if has_target:
             sel_box = boxes_xyxy[selected_idx]
             bbox_width_px = sel_box[2] - sel_box[0]
-<<<<<<< HEAD
             waterline_row_px = sel_box[3]
 
-=======
-            waterline_row_px = sel_box[3]  # bottom edge of the bounding box
-
-            # --- Layer 2: try the horizon-dip refinement first ---
->>>>>>> 618dd2e (Refine classification detection workflow)
-            if horizon_row is not None:
+            if use_horizon and horizon_row is not None:
                 horizon_distance_m, _debug = estimate_distance_via_horizon(
                     frame, waterline_row_px, focal_length_px
                 )
@@ -247,34 +212,18 @@ while True:
                     distance_m = horizon_distance_m
                     distance_source = 'Horizon'
 
-<<<<<<< HEAD
-=======
-            # --- Layer 1: fall back to the always-available width-based estimate ---
->>>>>>> 618dd2e (Refine classification detection workflow)
             if distance_m is None:
                 distance_m = estimate_distance(bbox_width_px, focal_length_px)
                 distance_source = 'Width-based'
 
-<<<<<<< HEAD
-=======
-            # Relative bearing from horizontal box offset -- placeholder
-            # until real heading data from the team is merged in.
->>>>>>> 618dd2e (Refine classification detection workflow)
             box_cx = (sel_box[0] + sel_box[2]) / 2
             offset_frac = (box_cx - frame_width / 2) / (frame_width / 2)
             bearing_deg = offset_frac * (hfov_deg / 2)
 
             draw_info_callout(annotated_frame, sel_box, distance_m,
-<<<<<<< HEAD
                               heading_text='pending (team merge)',
                               source_label=distance_source)
 
-=======
-                               heading_text='pending (team merge)',
-                               source_label=distance_source)
-
-        # Radar HUD panel (Feature 2)
->>>>>>> 618dd2e (Refine classification detection workflow)
         draw_radar_panel(annotated_frame, selection_state, distance_m,
                           has_target, bearing_deg=bearing_deg)
 
@@ -284,7 +233,8 @@ while True:
         cv2.putText(annotated_frame, 'Initialising...', (20, 40),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
 
-    # Settings info at bottom of frame
+    draw_settings_button(annotated_frame, selection_state)
+
     cv2.putText(annotated_frame,
                 'OpenVINO INT8 | Threaded | imgsz=320 | conf=0.6 | Click a ship to select',
                 (20, annotated_frame.shape[0] - 20),
@@ -305,16 +255,9 @@ while True:
         print(f"Screenshot saved: {screenshot_path}")
         screenshot_count += 1
 
-    if key == ord('c'):
-<<<<<<< HEAD
-=======
-        # Reopen Camera Setup mid-session -- still no code edits, just a
-        # small window. The main loop pauses while it's open; focal
-        # length and camera height are re-read from config automatically
-        # on the next frame once it closes.
->>>>>>> 618dd2e (Refine classification detection workflow)
+    if key == ord('c') or selection_state.settings_requested:
         print("Opening Camera Setup...")
-        run_setup_dialog(force=True)
+        open_settings()
 
 # Cleanup
 running = False

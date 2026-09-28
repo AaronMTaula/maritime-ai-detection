@@ -19,7 +19,7 @@ phone cameras, and not something OpenCV can query directly):
     focal_length_px = (equivalent_focal_length_mm / 36.0) * image_width_px
 
 To deploy on a different fixed camera, add a new entry below -- then
-select it once through the Settings UI (camera_setup_ui.py). Nothing
+select it in the Settings window (camera_setup_ui.py). Nothing
 here requires a source code edit for the end user; ACTIVE_CAMERA_PROFILE
 below is only a same-machine developer fallback (used if the Settings
 UI has genuinely never been run), not something a client ever needs to
@@ -28,7 +28,7 @@ touch.
 
 import math
 
-from app_config import load_config
+from app_config import get_active_settings
 
 # 35mm-equivalent focal length (mm) for each known deployment camera's
 # main/wide (1x) lens, since that's what Continuity Camera / default
@@ -60,8 +60,7 @@ FULL_FRAME_SENSOR_WIDTH_MM = 36.0  # reference width "equivalent" focal lengths 
 def _resolve_profile(profile=None):
     if profile:
         return profile
-    cfg = load_config()
-    return cfg.get("camera_profile") or ACTIVE_CAMERA_PROFILE
+    return get_active_settings().get("camera_profile") or ACTIVE_CAMERA_PROFILE
 
 
 def get_focal_length_px(image_width_px, profile=None):

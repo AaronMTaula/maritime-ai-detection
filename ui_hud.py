@@ -1,5 +1,5 @@
 """
-Interactive HUD utilities for the maritime detection system.
+Interactive HUD utilities
 
 Provides:
   - Feature 1: Click-to-select bounding boxes, with frame-to-frame tracking
@@ -7,8 +7,6 @@ Provides:
   - Feature 2: A radar/sonar-style aesthetic display showing the selected
     ship's distance (and, once merged, heading/bearing).
 
-Pure OpenCV drawing — no extra dependencies beyond what's already in
-requirements.txt.
 """
 
 import cv2
@@ -49,11 +47,17 @@ class SelectionState:
         self.selected_center = None   # (x, y) of the currently selected ship
         self.click_point = None       # set by the mouse callback, consumed once per frame
         self.sweep_angle = 0.0        # radar sweep animation state (degrees)
+        self.settings_button_rect = None  # (x1, y1, x2, y2), set when the button is drawn
+        self.settings_requested = False   # set when the Settings button is clicked
 
 
 def mouse_callback(event, x, y, flags, state: "SelectionState"):
     """Pass a SelectionState instance as the `param` to cv2.setMouseCallback."""
     if event == cv2.EVENT_LBUTTONDOWN:
+        rect = state.settings_button_rect
+        if rect and rect[0] <= x <= rect[2] and rect[1] <= y <= rect[3]:
+            state.settings_requested = True   # clicked the Settings button, not a ship
+            return
         state.click_point = (x, y)
 
 
@@ -163,6 +167,24 @@ def draw_info_callout(frame, box_xyxy, distance_m, heading_text='pending', sourc
                 cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
     cv2.putText(frame, hdg_text, (x1, max(40, y1 - 24)),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
+
+
+def draw_settings_button(frame, state: SelectionState, label='Settings'):
+    """Clickable button in the top-right corner. Its position is stored on
+    the state so mouse_callback can tell a button click from a ship click."""
+    h, w = frame.shape[:2]
+    bw, bh, margin = 130, 34, 16
+    x1, y1 = w - bw - margin, margin
+    x2, y2 = x1 + bw, y1 + bh
+    state.settings_button_rect = (x1, y1, x2, y2)
+
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (x1, y1), (x2, y2), COLOR_PANEL_BG, -1)
+    cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, dst=frame)
+    cv2.rectangle(frame, (x1, y1), (x2, y2), COLOR_TEXT, 1, cv2.LINE_AA)
+    (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
+    cv2.putText(frame, label, (x1 + (bw - tw) // 2, y1 + (bh + th) // 2),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.55, COLOR_TEXT, 1, cv2.LINE_AA)
 
 
 def draw_horizon_line(frame, horizon_row, confidence):
