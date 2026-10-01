@@ -3,6 +3,7 @@ import io
 import os
 import cv2
 import threading
+from collections import deque
 
 try:
     import yaml
@@ -143,6 +144,7 @@ MODEL_PATH = os.environ.get(
 )
 MODEL_IMGSZ = get_model_imgsz(MODEL_PATH)
 
+print(f"Running script: {os.path.abspath(__file__)}")
 print(f"Loading model from: {MODEL_PATH}")
 with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
     model = YOLO(MODEL_PATH)
@@ -224,7 +226,7 @@ if FOCAL_LENGTH_PX is not None:
     print("Note: distance estimates assume the capture resolution matches what "
           "calibrate_focal_length.py was run at. Re-calibrate if resolutions differ.")
 
-print("Live detection running.")
+print("Live detection running. Compass overlay is enabled (screen-relative).")
 print("Press Q to quit.")
 print("Press S to save a screenshot.")
 
@@ -236,11 +238,68 @@ results_lock = threading.Lock()
 running = True
 screenshot_count = 0
 
-# ── TODO: Orientation feature hook ─────────────────────────────────
-# Placeholder for the upcoming orientation-estimation feature. When ready,
-# add an `estimate_orientation(box, frame)` import similarly to
-# `estimate_distance` above, call it inside the detection loop below where
-# distance is computed, and append its label to the per-box overlay text.
+# ── Direction smoothing state ─────────────────────────────────────
+direction_history = deque(maxlen=5)
+current_display_direction = "center"
+
+
+def get_direction_label(box, frame_width, frame_height):
+    """
+    Return a cardinal direction based on the box center relative to the frame center.
+    A dead zone is used to prevent jitter near the center or diagonal lines.
+    """
+    x1, y1, x2, y2 = box.xyxy[0].tolist()
+    center_x = (x1 + x2) / 2
+    center_y = (y1 + y2) / 2
+
+    frame_center_x = frame_width / 2
+    frame_center_y = frame_height / 2
+
+    dx = center_x - frame_center_x
+    dy = center_y - frame_center_y
+
+    # Dead zone threshold: 5% of the smaller frame dimension
+    dead_zone = min(frame_width, frame_height) * 0.05
+
+    # 1. If too close to the frame center, return "center"
+    if abs(dx) < dead_zone and abs(dy) < dead_zone:
+        return "center"
+
+    # 2. If near the diagonal, return "center" to avoid rapid switching
+    if 0.8 < abs(dx) / (abs(dy) + 1e-6) < 1.25:
+        return "center"
+
+    # 3. Normal cardinal direction decision
+    if abs(dx) > abs(dy):
+        return "east" if dx > 0 else "west"
+    else:
+        return "south" if dy > 0 else "north"
+
+
+def draw_compass(frame, center, radius):
+    """Draw a fixed, large, high-contrast compass overlay."""
+    cx, cy = center
+
+    box_left = max(0, cx - radius - 30)
+    box_top = max(0, cy - radius - 30)
+    box_right = min(frame.shape[1] - 1, cx + radius + 30)
+    box_bottom = min(frame.shape[0] - 1, cy + radius + 70)
+
+    cv2.rectangle(frame, (box_left, box_top), (box_right, box_bottom), (10, 10, 10), -1)
+    cv2.rectangle(frame, (box_left, box_top), (box_right, box_bottom), (0, 255, 255), 3)
+
+    cv2.circle(frame, (cx, cy), radius, (255, 255, 255), 3)
+    cv2.line(frame, (cx, cy - radius), (cx, cy + radius), (255, 255, 255), 3)
+    cv2.line(frame, (cx - radius, cy), (cx + radius, cy), (255, 255, 255), 3)
+    cv2.arrowedLine(frame, (cx, cy), (cx, cy - radius + 12), (0, 0, 255), 5, tipLength=0.35)
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    cv2.putText(frame, 'N', (cx - 14, cy - radius - 18), font, 1.3, (0, 0, 255), 3)
+    cv2.putText(frame, 'S', (cx - 12, cy + radius + 32), font, 1.3, (255, 255, 255), 3)
+    cv2.putText(frame, 'E', (cx + radius + 18, cy + 10), font, 1.3, (255, 255, 255), 3)
+    cv2.putText(frame, 'W', (cx - radius - 34, cy + 10), font, 1.3, (255, 255, 255), 3)
+    cv2.putText(frame, 'SCREEN ONLY', (cx - 85, cy + radius + 60), font, 0.55, (200, 200, 200), 2)
+
 
 # ── Inference Thread ──────────────────────────────────────────────
 def inference_thread():
@@ -301,14 +360,28 @@ while True:
                 x1, y1, x2, y2 = box.xyxy[0].tolist()
                 bbox_width_px = x2 - x1
 
+                # Direction estimation with smoothing
+                raw_direction = get_direction_label(
+                    box,
+                    annotated_frame.shape[1],
+                    annotated_frame.shape[0]
+                )
+                direction_history.append(raw_direction)
+
+                if len(direction_history) > 0:
+                    most_common = max(
+                        set(direction_history),
+                        key=direction_history.count
+                    )
+                    count = direction_history.count(most_common)
+                    if count >= 3:
+                        current_display_direction = most_common
+
                 if FOCAL_LENGTH_PX is not None:
                     distance_m = estimate_distance(bbox_width_px, FOCAL_LENGTH_PX)
-                    label = f'Conf: {conf:.2f} | Dist: {distance_m:.1f}m'
+                    label = f'Conf: {conf:.2f} | Dist: {distance_m:.1f}m | Dir: {current_display_direction}'
                 else:
-                    label = f'Conf: {conf:.2f} | Dist: N/A (not calibrated)'
-
-                # TODO: append orientation label here once that feature lands
-                # e.g. label += f' | Heading: {orientation_deg:.0f} deg'
+                    label = f'Conf: {conf:.2f} | Dist: N/A | Dir: {current_display_direction}'
 
                 cv2.putText(annotated_frame,
                            label,
@@ -323,6 +396,11 @@ while True:
                     cv2.FONT_HERSHEY_SIMPLEX,
                     1, (255, 255, 0), 2)
 
+    # Draw a fixed, high-contrast compass in the top-right corner
+    h, w = annotated_frame.shape[:2]
+    compass_center = (w - 125, 120)
+    draw_compass(annotated_frame, compass_center, 80)
+
     cv2.putText(annotated_frame,
                 f'Camera: {camera_index} | OpenVINO INT8 | {ACTUAL_WIDTH}x{ACTUAL_HEIGHT} | '
                 f'imgsz={MODEL_IMGSZ} | conf=0.6 | Every 5th frame',
@@ -330,7 +408,10 @@ while True:
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5, (200, 200, 200), 1)
 
-    cv2.imshow('Maritime Ferry Detection - Live', annotated_frame)
+    window_title = 'Maritime Ferry Detection - Live | Compass ON'
+    cv2.namedWindow(window_title, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window_title, 1500, 900)
+    cv2.imshow(window_title, annotated_frame)
 
     key = cv2.waitKey(1) & 0xFF
 
