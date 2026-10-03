@@ -1,0 +1,4 @@
+# Optional Intel OpenVINO export/runtime support.
+# The macOS live detector uses the included PyTorch .pt model by default.
+openvino==2026.2.0
+nncf==3.2.0
